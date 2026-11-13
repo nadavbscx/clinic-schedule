@@ -1,6 +1,6 @@
-import { DAYS, QUALS, ROLE_LABEL, RULES, audit, seed } from "./schedule.mjs";
+import { DAYS, QUALS, ROLE_LABEL, RULES, audit, blankState, generate } from "./schedule.mjs";
 
-const KEY = "clinic-schedule-v1";
+const KEY = "clinic-schedule-v2";
 const CELL_ROWS = [
   ["konan", "08:00–18:00"],
   ["aide", "09:00–18:00"],
@@ -20,15 +20,15 @@ const ui = { tab: "edit", edit: "konan:0", weekEdit: "" };
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return seed();
+    if (!raw) return blankState();
     return normalize(JSON.parse(raw));
   } catch {
-    return seed();
+    return blankState();
   }
 }
 
 function normalize(input) {
-  const base = seed();
+  const base = blankState();
   if (!input || !Array.isArray(input.people) || !input.cells) return base;
   return {
     ...base,
@@ -44,6 +44,11 @@ function normalize(input) {
       people: task.people?.length ? task.people : task.person ? [task.person] : [],
     })),
     custom: input.custom || [],
+    need: {
+      rangeAm: input.need?.rangeAm?.length === 5 ? input.need.rangeAm : base.need.rangeAm,
+      rangePm: input.need?.rangePm?.length === 5 ? input.need.rangePm : base.need.rangePm,
+      rangeEve: input.need?.rangeEve?.length === 5 ? input.need.rangeEve : base.need.rangeEve,
+    },
   };
 }
 
@@ -70,7 +75,7 @@ function qualified(role) {
     rangeAm: "ranges",
     rangePm: "ranges",
     rangeEve: "ranges",
-    night: "konan",
+    night: "night",
     kiryot: "kiryot",
     driver: "driver",
     guard: "guards",
@@ -79,9 +84,10 @@ function qualified(role) {
   }[role];
   const people = [...state.people].sort((a, b) => a.name.localeCompare(b.name, "he"));
   if (!qual) return { fit: people, rest: [] };
+  const ok = (p) => p.quals.includes(qual) || (role === "night" && p.quals.includes("konan"));
   return {
-    fit: people.filter((p) => p.quals.includes(qual)),
-    rest: people.filter((p) => !p.quals.includes(qual)),
+    fit: people.filter(ok),
+    rest: people.filter((p) => !ok(p)),
   };
 }
 
@@ -151,7 +157,10 @@ function cell(edit, text, empty) {
 }
 
 function singleRow(key, hours) {
-  const tds = state.cells[key].map((name, day) => cell(`${key}:${day}`, esc(name), !name)).join("");
+  const tds = state.cells[key].map((name, day) => {
+    const open = state.need?.[key]?.[day] && !name;
+    return cell(`${key}:${day}`, open ? "יש" : esc(name), !name && !open);
+  }).join("");
   return `<tr>${roleHead(ROLE_LABEL[key], hours)}${tds}</tr>`;
 }
 
@@ -315,7 +324,7 @@ function peoplePanel() {
     </article>`;
   }).join("");
   const quals = QUALS.map(([id, label]) => `<label><input type="checkbox" name="qual" value="${id}"> ${label}</label>`).join("");
-  return `<h2>אנשים</h2><p class="hint">יום מסומן = לא זמין. לירוי ורוני מסומנים כל השבוע.</p>${rows}
+  return `<h2>אנשים</h2><p class="hint">יום מסומן = לא זמין.</p>${rows}
     <form class="stack" data-form="person">
       <h3>אדם חדש</h3>
       <label class="field">שם<input name="name" type="text" required></label>
@@ -333,6 +342,7 @@ function dutiesPanel() {
     `<div class="rowline">${DAYS[day]} · ${pair.filter(Boolean).map(esc).join(", ")}
       <button type="button" class="linkish" data-act="clear-rasar" data-day="${day}">ניקוי</button></div>`).join("");
   return `<h2>תורנויות</h2>
+    <p class="hint">מזינים שמירות, רס״ר וזמינות, מסמנים מטווחים, ואז «צור לוז».</p>
     <h3>שמירות</h3>
     ${guards || `<p class="hint">אין שמירות.</p>`}
     <form class="stack" data-form="guard">
@@ -348,7 +358,9 @@ function dutiesPanel() {
       ${dayField()}
       ${personField("rasar")}
       <button class="primary" type="submit">הוספה לרס״ר</button>
-    </form>`;
+    </form>
+    <h3>מטווחים השבוע</h3>
+    ${["rangeAm", "rangePm", "rangeEve"].map((key) => `<div class="rowline"><b>${ROLE_LABEL[key]}</b> ${DAYS.map((day, index) => `<label class="note"><input type="checkbox" data-act="need" data-key="${key}" data-day="${index}" ${state.need[key][index] ? "checked" : ""}> ${day}</label>`).join(" ")}</div>`).join("")}`;
 }
 
 function namesLine(pair) {
@@ -486,7 +498,7 @@ document.querySelector("#app").addEventListener("click", (event) => {
     if (ui.weekEdit === act.dataset.id) ui.weekEdit = "";
   }
   if (action === "del-custom") state.custom = state.custom.filter((row) => row.id !== act.dataset.id);
-  if (action === "rule" || action === "flag" || action === "custom-on" || action === "week-day" || action === "all-people" || action === "weekly-person" || action === "weekly-task") return;
+  if (action === "rule" || action === "flag" || action === "custom-on" || action === "week-day" || action === "all-people" || action === "weekly-person" || action === "weekly-task" || action === "need") return;
   save();
   render();
 });
@@ -516,6 +528,7 @@ document.querySelector("#app").addEventListener("change", (event) => {
     if (row) row[act.dataset.act === "weekly-person" ? "person" : "task"] = act.value;
   }
   if (act.dataset.act === "week-day") state.weekDay = Number(act.value);
+  if (act.dataset.act === "need") state.need[act.dataset.key][Number(act.dataset.day)] = act.checked;
   save();
   render();
 });
@@ -630,7 +643,18 @@ document.querySelector("#import").addEventListener("change", async (event) => {
 });
 
 document.querySelector("#reset").addEventListener("click", () => {
-  state = seed();
+  state = blankState();
+  save();
+  render();
+});
+
+document.querySelector("#generate").addEventListener("click", () => {
+  const next = generate(state);
+  if (!next) {
+    window.alert("לא מצאתי לוז בלי הפרות. בדקו תורנויות וזמינות.");
+    return;
+  }
+  state = next;
   save();
   render();
 });

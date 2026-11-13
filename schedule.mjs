@@ -20,6 +20,7 @@ export const ROLE_LABEL = {
 
 export const QUALS = [
   ["konan", "כונן"],
+  ["night", "כונן לילה"],
   ["aide", "ע׳ כונן"],
   ["ranges", "מטווחים"],
   ["kiryot", "קריות"],
@@ -81,27 +82,27 @@ export function seed() {
   const all = [0, 1, 2, 3, 4];
   return {
     people: [
-      person("יהלי", ["aide", "ranges", "rasar", "guards"], { aidePriority: true }),
-      person("אביגייל", ["aide", "ranges", "rasar", "guards"]),
-      person("עפרי", ["konan", "ranges", "guards"]),
-      person("רוני", ["konan", "ranges", "rasar", "guards"], { unavailable: all }),
-      person("נעמי", ["konan", "aide", "rasar", "guards"]),
-      person("רעות", ["konan", "ranges", "rasar", "guards"]),
+      person("יהלי", ["konan", "aide", "ranges", "rasar", "guards"], { aidePriority: true }),
+      person("אביגייל", ["konan", "aide", "ranges", "rasar", "guards"]),
+      person("עפרי", ["konan", "aide", "ranges", "guards"]),
+      person("רוני", ["konan", "aide", "ranges", "rasar", "guards"], { unavailable: all }),
+      person("נעמי", ["konan", "aide", "ranges", "rasar", "guards"]),
+      person("רעות", ["konan", "aide", "ranges", "rasar", "guards"]),
       person("ברנר", ["kiryot", "aide", "ranges", "konan", "rasar", "guards"], { boy: true }),
-      person("לירוי", ["kiryot", "ranges", "rasar", "guards"], { boy: true, unavailable: all }),
-      person("בן", ["kiryot", "konan", "aide", "rasar", "guards"], { boy: true }),
-      person("שון", ["kiryot", "konan", "aide", "rasar", "guards"], { boy: true }),
-      person("נדב", ["driver", "guards"], { boy: true, neverYomi: true }),
+      person("לירוי", ["kiryot", "night", "aide", "ranges", "rasar", "guards"], { boy: true, unavailable: all }),
+      person("בן", ["kiryot", "konan", "aide", "ranges", "rasar", "guards"], { boy: true }),
+      person("שון", ["kiryot", "konan", "aide", "ranges", "rasar", "guards"], { boy: true }),
+      person("נדב", ["driver", "guards", "night"], { boy: true, neverYomi: true }),
       person("ליהי", ["manager"], { neverYomi: true }),
-      person("איה", ["manager", "ranges", "aide", "rasar", "guards"]),
+      person("איה", ["konan", "manager", "ranges", "aide", "rasar", "guards"]),
       person("מזרחי", ["manager"], { boy: true, neverYomi: true }),
-      person("אריאל", ["kiryot", "ranges", "rasar", "guards"], { boy: true }),
-      person("עדי", ["manager", "ranges", "guards", "driver", "rasar"]),
-      person("הראל", ["kiryot", "aide", "rasar", "guards"], { boy: true }),
+      person("אריאל", ["kiryot", "night", "ranges", "rasar", "guards"], { boy: true }),
+      person("עדי", ["night", "manager", "ranges", "guards", "driver", "rasar"], { boy: true }),
+      person("הראל", ["kiryot", "aide", "ranges", "rasar", "guards"], { boy: true }),
       person("פולינה", ["konan", "aide", "ranges", "rasar", "guards"]),
       person("ליה", ["rasar", "guards"], { neverWeekly: true }),
       person("נועה כהן", ["rasar", "guards"], { neverWeekly: true }),
-      person("אלון", ["rasar"], { boy: true }),
+      person("אלון", ["kiryot", "night", "aide", "ranges", "rasar", "guards"], { boy: true }),
     ],
     weekDay: 3,
     cells: {
@@ -170,8 +171,13 @@ export function blankState() {
   base.pairs.rasar = five(() => ["", ""]);
   base.teams = five(() => ({ manager: "", a: "", b: "" }));
   base.guards = five(() => []);
-  base.weeklies = [];
+  base.weeklies = base.weeklies.map((row) => ({ ...row, person: "" }));
   base.tasks = [];
+  base.need = {
+    rangeAm: five(false),
+    rangePm: five(false),
+    rangeEve: five(false),
+  };
   return base;
 }
 
@@ -345,6 +351,12 @@ export function audit(state) {
     }
   }
 
+  for (let d = 0; d < 5; d++) {
+    if (state.cells.night[d] === "נדב" && state.cells.driver[d] === "נדב") {
+      err(`נדב נהג ב${DAYS[d]} ולא יכול כונן לילה באותו יום`);
+    }
+  }
+
   if (rules.noYomiWeeklyDay) {
     const d = state.weekDay;
     const filled = names(state.pairs.yomi054[d]).concat(names(state.pairs.yomi224[d]));
@@ -360,7 +372,10 @@ export function audit(state) {
     }
     if (rules.unavailable && p.unavailable.includes(day)) err(`${name} לא זמין/ה ב${DAYS[day]} ומשובץ/ת ל${ROLE_LABEL[role]}`);
     const qual = role === "team" ? null : QUAL_FOR[role];
-    if (rules.quals && qual && !p.quals.includes(qual)) err(`${name} לא כשיר/ה ל${ROLE_LABEL[role]}`);
+    const nightOk = p.quals.includes("konan") || p.quals.includes("night");
+    if (rules.quals && role === "night") {
+      if (!nightOk) err(`${name} לא כשיר/ה ל${ROLE_LABEL.night}`);
+    } else if (rules.quals && qual && !p.quals.includes(qual)) err(`${name} לא כשיר/ה ל${ROLE_LABEL[role]}`);
     if (rules.neverYomi && p.neverYomi && (role === "yomi054" || role === "yomi224")) err(`${name} לא עושה יומיות`);
     if (rules.neverWeekly && p.neverWeekly && role === "weekly") err(`${name} לא עושה שבועיות`);
   };
@@ -397,8 +412,9 @@ export function audit(state) {
       const name = state.cells.night[d];
       if (!name) continue;
       const current = findPerson(state, name);
-      if (current?.boy && current.quals.includes("konan")) continue;
-      const free = state.people.filter((p) => p.boy && p.quals.includes("konan") && p.name !== name && freeForNight(state, p.name, d, ivs));
+      const canNight = (p) => p?.boy && (p.quals.includes("konan") || p.quals.includes("night"));
+      if (canNight(current)) continue;
+      const free = state.people.filter((p) => canNight(p) && p.name !== name && freeForNight(state, p.name, d, ivs));
       if (free.length) warn(`${DAYS[d]}: כונן לילה הוא ${name}. בנים פנויים: ${free.map((p) => p.name).join(", ")}`);
     }
   }
@@ -467,6 +483,194 @@ export function audit(state) {
   });
 }
 
+const SPANS = {
+  konan: [8, 18],
+  aide: [9, 18],
+  rangeAm: [6, 12],
+  rangePm: [12, 18],
+  rangeEve: [18, 24],
+  driver: [8, 18],
+  team: [8, 18],
+  manager: [8, 18],
+  kiryot: [0, 24],
+  rasar: [0, 24],
+};
+
+const MORNING = new Set(["konan", "aide", "driver", "team", "manager", "rangeAm", "yomi054", "yomi224", "weekly", "kiryot", "rasar"]);
+
+function dayBlocked(state, role, day) {
+  return (state.custom || []).some((c) => c.enabled && c.type === "dayWithout" && c.role === role && Number(c.day) === day);
+}
+
+function qualOk(person, role) {
+  if (role === "manager") return person.quals.includes("manager");
+  if (role === "team" || role === "yomi054" || role === "yomi224" || role === "weekly") return true;
+  if (role === "night") return person.quals.includes("konan") || person.quals.includes("night");
+  const qual = QUAL_FOR[role];
+  return qual ? person.quals.includes(qual) : true;
+}
+
+function asleep(state, name, day) {
+  if (day > 0 && state.cells.night[day - 1] === name) return true;
+  return state.guards[day].some((g) => {
+    const start = hm(g.start);
+    const end = hm(g.end);
+    return g.person === name && start != null && end != null && start < 8 * 60 && end <= 8 * 60;
+  });
+}
+
+function occupied(state, name, day) {
+  if (CELL_KEYS.some((key) => state.cells[key][day] === name)) return true;
+  if (["yomi054", "yomi224", "rasar"].some((key) => names(state.pairs[key][day]).includes(name))) return true;
+  const team = state.teams[day];
+  if (team.manager === name || team.a === name || team.b === name) return true;
+  if (state.guards[day].some((g) => g.person === name)) return true;
+  if (day === state.weekDay && state.weeklies.some((row) => row.person === name)) return true;
+  return state.tasks.some((task) => task.day === day && taskPeople(task).includes(name));
+}
+
+function spansOf(role, day) {
+  if (role === "night") return [[day * 1440 + 18 * 60, day * 1440 + 24 * 60], [(day + 1) * 1440, (day + 1) * 1440 + 8 * 60]];
+  const span = SPANS[role];
+  return span ? [[day * 1440 + span[0] * 60, day * 1440 + span[1] * 60]] : [];
+}
+
+function clashes(state, name, role, day) {
+  const person = findPerson(state, name);
+  if (!person || person.unavailable.includes(day) || dayBlocked(state, role, day) || !qualOk(person, role)) return true;
+  if ((role === "yomi054" || role === "yomi224") && person.neverYomi) return true;
+  if (role === "weekly" && person.neverWeekly) return true;
+  if (name === "נדב" && ((role === "night" && state.cells.driver[day] === name) || (role === "driver" && state.cells.night[day] === name))) return true;
+  if (role === "kiryot" && state.cells.kiryot.includes(name)) return true;
+  if (role === "konan" && day > 0 && state.cells.kiryot[day - 1] === name) return true;
+  if (role === "kiryot" && day < 4 && state.cells.konan[day + 1] === name) return true;
+  const exclusive = state.cells.kiryot[day] === name || names(state.pairs.rasar[day]).includes(name);
+  if (exclusive && role !== "kiryot" && role !== "rasar") return true;
+  if ((role === "kiryot" || role === "rasar") && occupied(state, name, day)) return true;
+  if (MORNING.has(role) && asleep(state, name, day)) return true;
+  if (role === "night" && day < 4 && (state.cells.kiryot[day + 1] === name || names(state.pairs.rasar[day + 1]).includes(name))) return true;
+  if ((role === "kiryot" || role === "rasar") && day > 0 && state.cells.night[day - 1] === name) return true;
+  if (role === "weekly" && (state.cells.konan[day] === name || state.cells.night[day] === name || state.cells.kiryot[day] === name || exclusive)) return true;
+  if (role === "team" || role === "manager") {
+    const team = state.teams[day];
+    if (team.manager === name || team.a === name || team.b === name) return true;
+  }
+  if ((role === "yomi054" || role === "yomi224" || role === "rasar") && names(state.pairs[role][day]).includes(name)) return true;
+  if (role === "weekly" && state.weeklies.some((row) => row.person === name)) return true;
+  const proposed = spansOf(role, day);
+  if (proposed.length) {
+    for (const iv of intervals(state)) {
+      if (iv.person !== name) continue;
+      for (const [start, end] of proposed) {
+        if (end <= iv.start || iv.end <= start) continue;
+        if (allowedOverlap(role === "manager" ? "team" : role, iv.role)) continue;
+        return true;
+      }
+    }
+  }
+  for (const custom of state.custom || []) {
+    if (!custom.enabled) continue;
+    if (custom.type === "never" && custom.person === name && custom.role === role) return true;
+    if (custom.type === "after" && custom.role2 === role && day > 0 && hasRole(state, name, custom.role, day - 1)) return true;
+    if (custom.type === "after" && custom.role === role && day < 4 && hasRole(state, name, custom.role2, day + 1)) return true;
+  }
+  return false;
+}
+
+function options(state, slot) {
+  const day = slot.day ?? state.weekDay;
+  const role = slot.type === "weekly" ? "weekly" : slot.type === "team" ? (slot.key === "manager" ? "manager" : "team") : slot.key;
+  let list = state.people.filter((person) => !clashes(state, person.name, role, day));
+  if (slot.key === "night") {
+    const boys = list.filter((person) => person.boy && (person.quals.includes("konan") || person.quals.includes("night")));
+    if (boys.length) list = boys;
+  }
+  if (slot.key === "aide") {
+    const preferred = list.filter((person) => person.aidePriority);
+    if (preferred.length) list = preferred;
+  }
+  if (slot.type === "weekly") {
+    const row = state.weeklies.find((item) => item.id === slot.id);
+    const morning = state.cells.rangeAm[state.weekDay];
+    if (row.group === "084") list = morning ? list.filter((person) => person.name === morning) : list;
+    else if (morning) list = list.filter((person) => person.name !== morning);
+    if (row.task.includes("וסט רופא 4")) {
+      const nadav = list.filter((person) => person.name === "נדב");
+      if (nadav.length) list = nadav;
+    } else list = list.filter((person) => person.name !== "נדב");
+  }
+  const score = (person) => {
+    if (slot.key === "driver" && person.name === "נדב") return 0;
+    if (slot.key === "night" && person.boy && person.quals.includes("konan")) return 0;
+    if (slot.key === "manager" && person.name === (slot.day % 2 ? "מזרחי" : "ליהי")) return 0;
+    return 1;
+  };
+  return list.sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name, "he"));
+}
+
+function writeSlot(state, slot, name) {
+  if (slot.type === "cell") state.cells[slot.key][slot.day] = name;
+  else if (slot.type === "pair") state.pairs[slot.key][slot.day][slot.index] = name;
+  else if (slot.type === "team") state.teams[slot.day][slot.key] = name;
+  else state.weeklies.find((row) => row.id === slot.id).person = name;
+}
+
+function planSlots(state) {
+  const plan = [];
+  for (let day = 0; day < 5; day++) {
+    if (!dayBlocked(state, "night", day)) plan.push({ type: "cell", key: "night", day });
+    if (!dayBlocked(state, "kiryot", day)) plan.push({ type: "cell", key: "kiryot", day });
+  }
+  for (let day = 0; day < 5; day++) {
+    state.pairs.rasar[day].forEach((name, index) => {
+      if (!name) plan.push({ type: "pair", key: "rasar", day, index });
+    });
+    if (!dayBlocked(state, "konan", day)) plan.push({ type: "cell", key: "konan", day });
+    if (!dayBlocked(state, "driver", day)) plan.push({ type: "cell", key: "driver", day });
+    if (!dayBlocked(state, "aide", day)) plan.push({ type: "cell", key: "aide", day });
+    for (const key of ["manager", "a", "b"]) plan.push({ type: "team", key, day });
+    for (const key of ["rangeAm", "rangePm", "rangeEve"]) if (state.need?.[key]?.[day]) plan.push({ type: "cell", key, day });
+  }
+  for (const row of state.weeklies) plan.push({ type: "weekly", id: row.id });
+  for (let day = 0; day < 5; day++) {
+    if (day === state.weekDay) continue;
+    for (const key of ["yomi054", "yomi224"]) {
+      plan.push({ type: "pair", key, day, index: 0 });
+      plan.push({ type: "pair", key, day, index: 1 });
+    }
+  }
+  return plan;
+}
+
+function clearGenerated(state) {
+  for (const key of CELL_KEYS) state.cells[key] = five("");
+  state.pairs.yomi054 = five(() => ["", ""]);
+  state.pairs.yomi224 = five(() => ["", ""]);
+  state.teams = five(() => ({ manager: "", a: "", b: "" }));
+  for (const row of state.weeklies) row.person = "";
+}
+
+function fill(state, plan, index, started) {
+  // ponytail: full scan with backtracking, cap 20000 nodes if the week gets tighter than a greedy pass
+  if (fill.nodes++ > 20000 || Date.now() - started > 2500) return false;
+  if (index === plan.length) return audit(state).every((item) => item.level !== "error");
+  const slot = plan[index];
+  for (const person of options(state, slot)) {
+    writeSlot(state, slot, person.name);
+    if (fill(state, plan, index + 1, started)) return true;
+    writeSlot(state, slot, "");
+  }
+  return false;
+}
+
+export function generate(state) {
+  const next = structuredClone(state);
+  next.need ||= { rangeAm: five(false), rangePm: five(false), rangeEve: five(false) };
+  clearGenerated(next);
+  fill.nodes = 0;
+  return fill(next, planSlots(next), 0, Date.now()) ? next : null;
+}
+
 function freeForNight(state, name, day, ivs) {
   const p = findPerson(state, name);
   if (!p || p.unavailable.includes(day)) return false;
@@ -493,5 +697,36 @@ if (isDirect) {
     console.log(hits);
     process.exit(1);
   }
-  console.log(`seed ok, warnings ${issues.length}`);
+  const liroy = seed();
+  const guy = liroy.people.find((p) => p.name === "לירוי");
+  guy.unavailable = [];
+  liroy.cells.night[0] = "לירוי";
+  if (audit(liroy).some((item) => item.level === "error" && item.text.includes("לירוי לא כשיר"))) process.exit(1);
+  liroy.cells.night[0] = "בן";
+  liroy.cells.konan[0] = "לירוי";
+  if (!audit(liroy).some((item) => item.level === "error" && item.text.includes("לירוי לא כשיר"))) process.exit(1);
+  const nadav = seed();
+  nadav.cells.night[0] = "נדב";
+  if (!audit(nadav).some((item) => item.level === "error" && item.text.includes("נדב נהג"))) process.exit(1);
+  nadav.cells.driver[0] = "";
+  if (audit(nadav).some((item) => item.level === "error" && item.text.includes("נדב לא כשיר"))) process.exit(1);
+  const fresh = blankState();
+  const src = seed();
+  fresh.people = structuredClone(src.people);
+  fresh.guards = structuredClone(src.guards);
+  fresh.pairs.rasar = structuredClone(src.pairs.rasar);
+  fresh.need.rangeAm = src.cells.rangeAm.map(Boolean);
+  fresh.need.rangePm = src.cells.rangePm.map(Boolean);
+  fresh.need.rangeEve = src.cells.rangeEve.map(Boolean);
+  const built = generate(fresh);
+  if (!built) {
+    console.log("generate failed", fill.nodes);
+    process.exit(1);
+  }
+  const builtErrors = audit(built).filter((item) => item.level === "error");
+  if (builtErrors.length) {
+    console.log(builtErrors);
+    process.exit(1);
+  }
+  console.log(`seed ok, warnings ${issues.length}, generated ${fill.nodes}`);
 }
