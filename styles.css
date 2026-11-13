@@ -165,7 +165,8 @@ td.cell { cursor: pointer; }
 td.cell:hover { outline: 2px solid #9ec5cb; outline-offset: -2px; }
 td.cell.on { outline: 2px solid var(--teal); outline-offset: -2px; background: #f4fbfb; }
 td.cell.bad { background: #fdecec; }
-td .empty { color: #c5d4d6; }
+td.cell select, td.cell input[type="time"] { width: 100%; font: inherit; }
+td.cell form.stack { text-align: start; }
 
 .pair { display: block; }
 .pair + .pair { margin-top: 6px; }

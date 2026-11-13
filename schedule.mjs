@@ -181,6 +181,11 @@ export function blankState() {
     rangePm: five(false),
     rangeEve: five(false),
   };
+  const cell = {};
+  for (const key of CELL_KEYS) cell[key] = five(false);
+  const pair = {};
+  for (const key of ["yomi054", "yomi224", "rasar"]) pair[key] = five(() => [false, false]);
+  base.pins = { cell, pair, team: five(() => ({ manager: false, a: false, b: false })), weekly: {} };
   return base;
 }
 
@@ -722,12 +727,38 @@ function planSlots(state) {
   return plan;
 }
 
+function held(state, slot) {
+  const pins = state.pins;
+  if (!pins) return false;
+  if (slot.type === "cell") return Boolean(pins.cell?.[slot.key]?.[slot.day]);
+  if (slot.type === "pair") return Boolean(pins.pair?.[slot.key]?.[slot.day]?.[slot.index]);
+  if (slot.type === "team") return Boolean(pins.team?.[slot.day]?.[slot.key]);
+  return Boolean(pins.weekly?.[slot.id]);
+}
+
+function slotFilled(state, slot) {
+  if (slot.type === "cell") return Boolean(state.cells[slot.key][slot.day]);
+  if (slot.type === "pair") return Boolean(state.pairs[slot.key][slot.day][slot.index]);
+  if (slot.type === "team") return Boolean(state.teams[slot.day][slot.key]);
+  return Boolean(state.weeklies.find((row) => row.id === slot.id)?.person);
+}
+
 function clearGenerated(state) {
-  for (const key of CELL_KEYS) state.cells[key] = five("");
-  state.pairs.yomi054 = five(() => ["", ""]);
-  state.pairs.yomi224 = five(() => ["", ""]);
-  state.teams = five(() => ({ manager: "", a: "", b: "" }));
-  for (const row of state.weeklies) row.person = "";
+  for (const key of CELL_KEYS) {
+    state.cells[key] = state.cells[key].map((name, day) => (held(state, { type: "cell", key, day }) && name ? name : ""));
+  }
+  for (const key of ["yomi054", "yomi224"]) {
+    state.pairs[key] = state.pairs[key].map((pair, day) => pair.map((name, index) => (held(state, { type: "pair", key, day, index }) && name ? name : "")));
+  }
+  state.teams = state.teams.map((team, day) => ({
+    manager: held(state, { type: "team", key: "manager", day }) && team.manager ? team.manager : "",
+    a: held(state, { type: "team", key: "a", day }) && team.a ? team.a : "",
+    b: held(state, { type: "team", key: "b", day }) && team.b ? team.b : "",
+  }));
+  for (const row of state.weeklies) {
+    if (held(state, { type: "weekly", id: row.id }) && row.person) continue;
+    row.person = "";
+  }
 }
 
 function fill(state, plan, index, started) {
@@ -735,6 +766,7 @@ function fill(state, plan, index, started) {
   if (fill.nodes++ > 20000 || Date.now() - started > 2500) return false;
   if (index === plan.length) return audit(state).every((item) => item.level !== "error");
   const slot = plan[index];
+  if (slotFilled(state, slot)) return fill(state, plan, index + 1, started);
   for (const person of options(state, slot)) {
     writeSlot(state, slot, person.name);
     if (fill(state, plan, index + 1, started)) return true;
@@ -766,10 +798,11 @@ function balance(state) {
   const roleOf = (slot) => (slot.type === "weekly" ? "weekly" : slot.type === "team" ? (slot.key === "manager" ? "manager" : "team") : slot.key);
   const give = (slot, to) => {
     const from = read(slot);
-    if (!from || from === to) return false;
+    if (!from || from === to || held(state, slot)) return false;
     if (slot.type === "weekly" && to === "נדב") return false;
     const day = slot.day ?? state.weekDay;
     const linked = slot.key === "rangeAm" && day === state.weekDay ? state.weeklies.find((row) => row.group === "084") : null;
+    if (linked && held(state, { type: "weekly", id: linked.id })) return false;
     writeSlot(state, slot, "");
     if (linked) linked.person = "";
     const blocked = clashes(state, to, roleOf(slot), day) || (linked && clashes(state, to, "weekly", day));
@@ -877,6 +910,20 @@ if (isDirect) {
   const gap = Math.max(...named) - Math.min(...named);
   if (gap > 2) {
     console.log(loads.map((person) => `${person.name} ${person.total}`).join("\n"));
+    process.exit(1);
+  }
+  const pinned = blankState();
+  pinned.people = structuredClone(src.people);
+  pinned.guards = structuredClone(src.guards);
+  pinned.pairs.rasar = structuredClone(src.pairs.rasar);
+  pinned.need.rangeAm = src.cells.rangeAm.map(Boolean);
+  pinned.need.rangePm = src.cells.rangePm.map(Boolean);
+  pinned.need.rangeEve = src.cells.rangeEve.map(Boolean);
+  pinned.cells.konan[0] = "נעמי";
+  pinned.pins.cell.konan[0] = true;
+  const kept = generate(pinned);
+  if (!kept || kept.cells.konan[0] !== "נעמי" || audit(kept).some((item) => item.level === "error")) {
+    console.log("pin lost", kept && kept.cells.konan[0], kept && audit(kept).filter((item) => item.level === "error"));
     process.exit(1);
   }
   console.log(`seed ok, warnings ${issues.length}, generated ${fill.nodes}, gap ${gap}`);

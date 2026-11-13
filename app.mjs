@@ -15,7 +15,7 @@ const PAIR_ROWS = ["yomi054", "yomi224"];
 const GROUPS = ["224", "084", "054", "מחסן"];
 
 let state = load();
-const ui = { tab: "edit", edit: "konan:0", weekEdit: "" };
+const ui = { tab: "edit", edit: "", weekEdit: "" };
 
 function load() {
   try {
@@ -49,6 +49,7 @@ function normalize(input) {
       rangePm: input.need?.rangePm?.length === 5 ? input.need.rangePm : base.need.rangePm,
       rangeEve: input.need?.rangeEve?.length === 5 ? input.need.rangeEve : base.need.rangeEve,
     },
+    pins: input.pins?.cell?.konan?.length === 5 ? input.pins : base.pins,
   };
 }
 
@@ -171,7 +172,77 @@ function roleHead(label, hours) {
 
 function cell(edit, text, empty) {
   const on = ui.edit === edit ? " on" : "";
-  return `<td class="cell${on}" data-edit="${edit}">${empty ? `<span class="empty">—</span>` : text}</td>`;
+  const editor = ui.edit === edit ? inlineEditor(edit) : "";
+  const body = editor || (empty ? `<span class="empty">—</span>` : text);
+  return `<td class="cell${on}" data-edit="${edit}">${body}</td>`;
+}
+
+function inlineEditor(edit) {
+  const [role, dayText] = edit.split(":");
+  const day = Number(dayText);
+  if (!role || Number.isNaN(day) || role === "idle") return "";
+  if (role === "guard") return guardEditor(day);
+  if (role === "team") return teamSelects(day);
+  if (state.pairs[role]) return pairSelects(role, day);
+  if (state.cells[role]) return cellSelect(role, day);
+  return "";
+}
+
+function personSelect(role, current, attrs, extra = []) {
+  const { fit, rest } = qualified(role);
+  const opt = (value, label) => `<option value="${esc(value)}" ${value === current ? "selected" : ""}>${esc(label)}</option>`;
+  const people = [...fit, ...rest].map((p) => opt(p.name, p.name + (p.unavailable.length === 5 ? " · לא זמין" : "")));
+  return `<select ${attrs}>${opt("", "—")}${extra.map(([value, label]) => opt(value, label)).join("")}${people.join("")}</select>`;
+}
+
+function cellSelect(key, day) {
+  const name = state.cells[key][day];
+  const range = key.startsWith("range");
+  const current = name || (range && state.need?.[key]?.[day] ? "*" : "");
+  const extra = range ? [["*", "יש מטווח"]] : [];
+  return personSelect(key, current, `data-act="pin-cell" data-key="${key}" data-day="${day}"`, extra);
+}
+
+function pairSelects(key, day) {
+  const [a, b] = state.pairs[key][day];
+  const attrs = (index) => `data-act="pin-pair" data-key="${key}" data-day="${day}" data-index="${index}"`;
+  return personSelect(key, a, attrs(0)) + personSelect(key, b, attrs(1));
+}
+
+function teamSelects(day) {
+  const team = state.teams[day];
+  const attrs = (key, role) => `data-act="pin-team" data-key="${key}" data-day="${day}" data-role="${role}"`;
+  return `${personSelect("manager", team.manager, attrs("manager", "manager"))}${personSelect("team", team.a, attrs("a", "team"))}${personSelect("team", team.b, attrs("b", "team"))}`;
+}
+
+function ensurePins() {
+  if (state.pins?.cell?.konan?.length === 5) return;
+  state.pins = blankState().pins;
+}
+
+function applyCell(key, day, value) {
+  ensurePins();
+  if (value === "*") {
+    state.cells[key][day] = "";
+    state.pins.cell[key][day] = false;
+    state.need[key][day] = true;
+    return;
+  }
+  state.cells[key][day] = value;
+  state.pins.cell[key][day] = Boolean(value);
+  if (String(key).startsWith("range")) state.need[key][day] = Boolean(value);
+}
+
+function applyPair(key, day, index, name) {
+  ensurePins();
+  state.pairs[key][day][index] = name;
+  state.pins.pair[key][day][index] = Boolean(name);
+}
+
+function applyTeam(day, key, name) {
+  ensurePins();
+  state.teams[day][key] = name;
+  state.pins.team[day][key] = Boolean(name);
 }
 
 function singleRow(key, hours) {
@@ -276,47 +347,12 @@ function weeklyCard() {
 function editPanel() {
   const [role, dayText] = ui.edit.split(":");
   const day = Number(dayText);
-  if (!role || Number.isNaN(day)) return `<p class="hint">בחרו משבצת בלוח.</p>`;
-  const title = `${ROLE_LABEL[role] || role} · ${DAYS[day]}`;
-  if (role === "idle") {
+  if (role === "idle" && !Number.isNaN(day)) {
     const list = idleOn(state, day);
     const rows = list.map((person) => `<p>${esc(person.name)}${day > 0 && state.cells.night[day - 1] === person.name ? ` <span class="note">ישן/ה עד 12:00</span>` : ""}</p>`).join("");
     return `<h2>בלי לוז · ${DAYS[day]}</h2><p class="hint">זמינים בלי שום שיבוץ ביום הזה.</p>${rows || `<p class="hint">כולם משובצים.</p>`}`;
   }
-  if (role === "guard") return `<h2>${title}</h2>${guardEditor(day)}`;
-  if (role === "team") return `<h2>${title}</h2>${teamEditor(day)}`;
-  if (state.pairs[role]) return `<h2>${title}</h2>${pairEditor(role, day)}`;
-  return `<h2>${title}</h2>${singleEditor(role, day)}`;
-}
-
-function nameButtons(role, current, onPick) {
-  const { fit, rest } = qualified(role);
-  const button = (p, dim) => {
-    const mark = p.unavailable.length === 5 ? " · לא זמין" : "";
-    const cls = [current === p.name ? "on" : "", dim ? "dim" : ""].filter(Boolean).join(" ");
-    return `<button type="button" class="${cls}" data-pick="${esc(p.name)}" data-act="${onPick}">${esc(p.name)}${mark}</button>`;
-  };
-  return `
-    <div class="picks">${fit.map((p) => button(p, false)).join("") || `<span class="hint">אין כשירים</span>`}</div>
-    ${rest.length ? `<details><summary class="note">שאר האנשים</summary><div class="picks">${rest.map((p) => button(p, true)).join("")}</div></details>` : ""}
-    <button type="button" class="linkish" data-act="${onPick}" data-pick="">ניקוי</button>`;
-}
-
-function singleEditor(role, day) {
-  return nameButtons(role, state.cells[role][day], "set-cell");
-}
-
-function pairEditor(role, day) {
-  const [a, b] = state.pairs[role][day];
-  return `<h3>ראשון</h3>${nameButtons(role, a, "set-pair-0")}<h3>שני</h3>${nameButtons(role, b, "set-pair-1")}`;
-}
-
-function teamEditor(day) {
-  const team = state.teams[day];
-  return `
-    <h3>מנהל אירוע</h3>${nameButtons("manager", team.manager, "set-manager")}
-    <h3>חובש</h3>${nameButtons("team", team.a, "set-med-a")}
-    <h3>חובש</h3>${nameButtons("team", team.b, "set-med-b")}`;
+  return `<h2>עריכה</h2><p class="hint">לוחצים על משבצת בלוח ומזינים. מה שהוזן נשאר כתורנות, ו«צור לוז» ממלא את השאר.</p>`;
 }
 
 function guardEditor(day) {
@@ -375,7 +411,7 @@ function dutiesPanel() {
     `<div class="rowline">${DAYS[day]} · ${pair.filter(Boolean).map(esc).join(", ")}
       <button type="button" class="linkish" data-act="clear-rasar" data-day="${day}">ניקוי</button></div>`).join("");
   return `<h2>תורנויות</h2>
-    <p class="hint">מזינים שמירות, רס״ר וזמינות, מסמנים מטווחים, ואז «צור לוז».</p>
+    <p class="hint">אפשר להזין גם בלחיצה על המשבצת בלוח. מה שהוזן נשאר, ו«צור לוז» ממלא את השאר.</p>
     <h3>שמירות</h3>
     ${guards || `<p class="hint">אין שמירות.</p>`}
     <form class="stack" data-form="guard">
@@ -480,9 +516,9 @@ function tasksPanel() {
 
 document.querySelector("#app").addEventListener("click", (event) => {
   const edit = event.target.closest("[data-edit]");
-  if (edit) {
-    ui.edit = edit.dataset.edit;
-    ui.tab = "edit";
+  if (edit && !event.target.closest("select, input, textarea, button, label")) {
+    ui.edit = ui.edit === edit.dataset.edit ? "" : edit.dataset.edit;
+    if (edit.dataset.edit.startsWith("idle:")) ui.tab = "edit";
     render();
     return;
   }
@@ -495,16 +531,16 @@ document.querySelector("#app").addEventListener("click", (event) => {
   const act = event.target.closest("[data-act]");
   if (!act) return;
   const action = act.dataset.act;
-  if (action === "set-cell") state.cells[ui.edit.split(":")[0]][Number(ui.edit.split(":")[1])] = act.dataset.pick;
+  if (action === "pin-cell" || action === "pin-pair" || action === "pin-team") return;
+  if (action === "set-cell") applyCell(ui.edit.split(":")[0], Number(ui.edit.split(":")[1]), act.dataset.pick);
   if (action === "set-pair-0" || action === "set-pair-1") {
     const [role, day] = ui.edit.split(":");
-    const index = action.endsWith("0") ? 0 : 1;
-    state.pairs[role][Number(day)][index] = act.dataset.pick;
+    applyPair(role, Number(day), action.endsWith("0") ? 0 : 1, act.dataset.pick);
   }
   if (action === "set-manager" || action === "set-med-a" || action === "set-med-b") {
     const day = Number(ui.edit.split(":")[1]);
     const key = action === "set-manager" ? "manager" : action === "set-med-a" ? "a" : "b";
-    state.teams[day][key] = act.dataset.pick;
+    applyTeam(day, key, act.dataset.pick);
   }
   if (action === "del-guard") state.guards[Number(act.dataset.day)].splice(Number(act.dataset.index), 1);
   if (action === "clear-rasar") state.pairs.rasar[Number(act.dataset.day)] = ["", ""];
@@ -562,9 +598,18 @@ document.querySelector("#app").addEventListener("change", (event) => {
   if (act.dataset.act === "custom-on") state.custom.find((row) => row.id === act.dataset.id).enabled = act.checked;
   if (act.dataset.act === "weekly-person" || act.dataset.act === "weekly-task") {
     const row = state.weeklies.find((item) => item.id === act.dataset.id);
-    if (row) row[act.dataset.act === "weekly-person" ? "person" : "task"] = act.value;
+    if (row) {
+      row[act.dataset.act === "weekly-person" ? "person" : "task"] = act.value;
+      if (act.dataset.act === "weekly-person") {
+        ensurePins();
+        state.pins.weekly[row.id] = Boolean(act.value);
+      }
+    }
   }
   if (act.dataset.act === "week-day") state.weekDay = Number(act.value);
+  if (act.dataset.act === "pin-cell") applyCell(act.dataset.key, Number(act.dataset.day), act.value);
+  if (act.dataset.act === "pin-pair") applyPair(act.dataset.key, Number(act.dataset.day), Number(act.dataset.index), act.value);
+  if (act.dataset.act === "pin-team") applyTeam(Number(act.dataset.day), act.dataset.key, act.value);
   if (act.dataset.act === "need") {
     state.need = state.need || { rangeAm: [false, false, false, false, false], rangePm: [false, false, false, false, false], rangeEve: [false, false, false, false, false] };
     state.need[act.dataset.key][Number(act.dataset.day)] = act.checked;
