@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>לו״ז מרפאה</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <p class="kicker">מרפאה</p>
+      <h1>לו״ז השבוע</h1>
+    </div>
+    <p class="save-note">נשמר בדפדפן הזה</p>
+    <div class="actions">
+      <button id="export" type="button">ייצוא</button>
+      <label class="file">ייבוא<input id="import" type="file" accept="application/json" hidden></label>
+      <button id="reset" type="button">איפוס ללוז המקורי</button>
+    </div>
+  </header>
+  <div id="app"></div>
+  <script type="module" src="app.mjs"></script>
+</body>
+</html>
