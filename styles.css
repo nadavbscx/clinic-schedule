@@ -59,6 +59,7 @@ h1 { margin: 0; font-size: 32px; font-weight: 650; }
   display: flex;
   gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
   padding: 10px 16px;
   background: white;
   border-bottom: 1px solid var(--line);
@@ -84,7 +85,7 @@ h1 { margin: 0; font-size: 32px; font-weight: 650; }
   padding: 10px 14px;
   cursor: pointer;
 }
-.createbar #status { margin: 0; font-weight: 700; }
+.createbar #status { margin: 0; font-weight: 700; flex: 1 1 220px; }
 
 .board {
   display: grid;

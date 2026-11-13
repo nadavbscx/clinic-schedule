@@ -755,7 +755,11 @@ function runGenerate() {
       state = next;
       save();
       render();
-      status("הלוז נוצר");
+      const errors = audit(state).filter((item) => item.level === "error");
+      const missed = generate.missed || [];
+      if (errors.length) status(errors[0].text);
+      else if (missed.length) status(`הלוז נוצר. בלי שיבוץ: ${missed.slice(0, 4).join(", ")}`);
+      else status("הלוז נוצר");
     } catch (error) {
       status(error.message || String(error));
     }

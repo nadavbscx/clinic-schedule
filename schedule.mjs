@@ -644,6 +644,7 @@ function clashes(state, name, role, day) {
   for (const custom of state.custom || []) {
     if (!custom.enabled) continue;
     if (custom.type === "never" && custom.person === name && custom.role === role) return true;
+    if (custom.type === "maxOnce" && custom.role === role && [0, 1, 2, 3, 4].some((d) => hasRole(state, name, role, d))) return true;
     if (custom.type === "after" && custom.role2 === role && day > 0 && hasRole(state, name, custom.role, day - 1)) return true;
     if (custom.type === "after" && custom.role === role && day < 4 && hasRole(state, name, custom.role2, day + 1)) return true;
   }
@@ -761,18 +762,56 @@ function clearGenerated(state) {
   }
 }
 
+function slotRole(slot) {
+  if (slot.type === "weekly") return "weekly";
+  if (slot.type === "team") return slot.key === "manager" ? "manager" : "team";
+  return slot.key;
+}
+
+function slotDay(state, slot) {
+  return slot.type === "weekly" ? state.weekDay : slot.day;
+}
+
+function slotOpen(state, slot) {
+  return !slotFilled(state, slot) && !dayBlocked(state, slotRole(slot), slotDay(state, slot));
+}
+
+function slotLabel(state, slot) {
+  return `${ROLE_LABEL[slotRole(slot)] || slotRole(slot)} ${DAYS[slotDay(state, slot)]}`;
+}
+
 function fill(state, plan, index, started) {
   // ponytail: full scan with backtracking, cap 20000 nodes if the week gets tighter than a greedy pass
   if (fill.nodes++ > 20000 || Date.now() - started > 2500) return false;
   if (index === plan.length) return audit(state).every((item) => item.level !== "error");
   const slot = plan[index];
-  if (slotFilled(state, slot)) return fill(state, plan, index + 1, started);
-  for (const person of options(state, slot)) {
+  if (!slotOpen(state, slot)) return fill(state, plan, index + 1, started);
+  const people = options(state, slot);
+  if (!people.length) return false;
+  for (const person of people) {
     writeSlot(state, slot, person.name);
     if (fill(state, plan, index + 1, started)) return true;
     writeSlot(state, slot, "");
   }
   return false;
+}
+
+function greedyFill(state, plan) {
+  const missed = [];
+  for (const slot of plan) {
+    if (!slotOpen(state, slot)) continue;
+    let placed = false;
+    for (const person of options(state, slot)) {
+      writeSlot(state, slot, person.name);
+      if (!audit(state).some((item) => item.level === "error")) {
+        placed = true;
+        break;
+      }
+      writeSlot(state, slot, "");
+    }
+    if (!placed) missed.push(slotLabel(state, slot));
+  }
+  return missed;
 }
 
 function balance(state) {
@@ -836,8 +875,10 @@ export function generate(state) {
   const next = JSON.parse(JSON.stringify(state));
   next.need = next.need || { rangeAm: five(false), rangePm: five(false), rangeEve: five(false) };
   clearGenerated(next);
+  const plan = planSlots(next);
   fill.nodes = 0;
-  if (!fill(next, planSlots(next), 0, Date.now())) return null;
+  generate.missed = [];
+  if (!fill(next, plan, 0, Date.now())) generate.missed = greedyFill(next, plan);
   balance(next);
   return next;
 }
@@ -924,6 +965,17 @@ if (isDirect) {
   const kept = generate(pinned);
   if (!kept || kept.cells.konan[0] !== "נעמי" || audit(kept).some((item) => item.level === "error")) {
     console.log("pin lost", kept && kept.cells.konan[0], kept && audit(kept).filter((item) => item.level === "error"));
+    process.exit(1);
+  }
+  const tight = blankState();
+  for (const person of tight.people) if (person.quals.includes("driver")) person.unavailable = [0, 1, 2, 3, 4];
+  const partial = generate(tight);
+  if (!partial || partial.cells.driver.some(Boolean) || partial.cells.konan.some((name) => !name)) {
+    console.log("partial failed", partial && partial.cells.driver, partial && partial.cells.konan, generate.missed);
+    process.exit(1);
+  }
+  if (audit(partial).some((item) => item.level === "error")) {
+    console.log(audit(partial).filter((item) => item.level === "error"));
     process.exit(1);
   }
   console.log(`seed ok, warnings ${issues.length}, generated ${fill.nodes}, gap ${gap}`);
