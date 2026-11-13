@@ -1,4 +1,4 @@
-import { DAYS, QUALS, ROLE_LABEL, RULES, audit, blankState, generate } from "./schedule.mjs";
+import { DAYS, QUALS, ROLE_LABEL, RULES, audit, blankState, generate, idleOn } from "./schedule.mjs";
 
 const KEY = "clinic-schedule-v2";
 const CELL_ROWS = [
@@ -148,11 +148,20 @@ function grid() {
     pairRow("rasar", "כל היום"),
     teamRow(),
     taskRow(),
+    idleRow(),
   ];
   return `<table>
     <thead><tr><th class="role">תפקיד</th>${head}</tr></thead>
     <tbody>${rows.join("")}</tbody>
   </table>`;
+}
+
+function idleRow() {
+  const tds = DAYS.map((_, day) => {
+    const count = idleOn(state, day).length;
+    return cell(`idle:${day}`, count ? `${count} בלי לוז` : "כולם משובצים", count === 0);
+  }).join("");
+  return `<tr>${roleHead("בלי לוז", "")}${tds}</tr>`;
 }
 
 function roleHead(label, hours) {
@@ -260,6 +269,11 @@ function editPanel() {
   const day = Number(dayText);
   if (!role || Number.isNaN(day)) return `<p class="hint">בחרו משבצת בלוח.</p>`;
   const title = `${ROLE_LABEL[role] || role} · ${DAYS[day]}`;
+  if (role === "idle") {
+    const list = idleOn(state, day);
+    const rows = list.map((person) => `<p>${esc(person.name)}${day > 0 && state.cells.night[day - 1] === person.name ? ` <span class="note">ישן/ה עד 12:00</span>` : ""}</p>`).join("");
+    return `<h2>בלי לוז · ${DAYS[day]}</h2><p class="hint">זמינים בלי שום שיבוץ ביום הזה.</p>${rows || `<p class="hint">כולם משובצים.</p>`}`;
+  }
   if (role === "guard") return `<h2>${title}</h2>${guardEditor(day)}`;
   if (role === "team") return `<h2>${title}</h2>${teamEditor(day)}`;
   if (state.pairs[role]) return `<h2>${title}</h2>${pairEditor(role, day)}`;

@@ -55,6 +55,9 @@ export const RULES = [
   ["noYomiWeeklyDay", "ביום שבועיות אין יומיות"],
   ["neverYomi", "מי שסומן לא עושה יומיות"],
   ["neverWeekly", "מי שסומן לא עושה שבועיות"],
+  ["oneYomi", "יומית אחת ביום, לא את שתיהן"],
+  ["oneRange", "מטווח אחד ביום, לא את השאר"],
+  ["spread", "לא אותו תפקיד כל יום", true],
   ["aidePriority", "עדיפות לע׳ כונן למי שסומן", true],
   ["weekly084", "084 על מי שבמטווחי הבוקר ביום השבועיות", true],
 ];
@@ -439,6 +442,45 @@ export function audit(state) {
     if (morning && !row) warn(`אין 084 ל${morning}, שנמצא/ת במטווחי הבוקר`);
   }
 
+  if (rules.oneYomi) {
+    for (let d = 0; d < 5; d++) {
+      for (const name of names(state.pairs.yomi054[d])) {
+        if (names(state.pairs.yomi224[d]).includes(name)) err(`${name} על שתי היומיות ב${DAYS[d]}`);
+      }
+    }
+  }
+
+  if (rules.oneRange) {
+    for (let d = 0; d < 5; d++) {
+      const seen = new Set();
+      for (const key of ["rangeAm", "rangePm", "rangeEve"]) {
+        const name = state.cells[key][d];
+        if (!name) continue;
+        if (seen.has(name)) err(`${name} על יותר ממטווח אחד ב${DAYS[d]}`);
+        seen.add(name);
+      }
+    }
+  }
+
+  if (rules.spread) {
+    const tally = new Map();
+    const bump = (role, name) => {
+      if (!name) return;
+      const key = `${role}\0${name}`;
+      tally.set(key, (tally.get(key) || 0) + 1);
+    };
+    for (let d = 0; d < 5; d++) {
+      for (const key of ["konan", "aide", "night", "driver", "rangeAm", "rangePm", "rangeEve"]) bump(key, state.cells[key][d]);
+      for (const key of ["yomi054", "yomi224"]) names(state.pairs[key][d]).forEach((name) => bump(key, name));
+      bump("manager", state.teams[d].manager);
+    }
+    for (const [key, count] of tally) {
+      if (count < 5) continue;
+      const [role, name] = key.split("\0");
+      warn(`${name} על ${ROLE_LABEL[role]} כל יום`);
+    }
+  }
+
   for (const c of state.custom || []) {
     if (!c.enabled || c.type === "note") continue;
     if (c.type === "never" && c.person && c.role) {
@@ -529,6 +571,10 @@ function occupied(state, name, day) {
   return state.tasks.some((task) => task.day === day && taskPeople(task).includes(name));
 }
 
+export function idleOn(state, day) {
+  return state.people.filter((person) => !person.unavailable.includes(day) && !occupied(state, person.name, day));
+}
+
 function spansOf(role, day) {
   if (role === "night") return [[day * 1440 + 18 * 60, day * 1440 + 24 * 60], [(day + 1) * 1440, (day + 1) * 1440 + 8 * 60]];
   const span = SPANS[role];
@@ -539,6 +585,9 @@ function clashes(state, name, role, day) {
   const person = findPerson(state, name);
   if (!person || person.unavailable.includes(day) || dayBlocked(state, role, day) || !qualOk(person, role)) return true;
   if ((role === "yomi054" || role === "yomi224") && person.neverYomi) return true;
+  if (role === "yomi054" && names(state.pairs.yomi224[day]).includes(name)) return true;
+  if (role === "yomi224" && names(state.pairs.yomi054[day]).includes(name)) return true;
+  if (role.startsWith("range") && ["rangeAm", "rangePm", "rangeEve"].some((key) => key !== role && state.cells[key][day] === name)) return true;
   if (role === "weekly" && person.neverWeekly) return true;
   if (name === "נדב" && ((role === "night" && state.cells.driver[day] === name) || (role === "driver" && state.cells.night[day] === name))) return true;
   if (role === "kiryot" && state.cells.kiryot.includes(name)) return true;
@@ -589,6 +638,10 @@ function options(state, slot) {
     const preferred = list.filter((person) => person.aidePriority);
     if (preferred.length) list = preferred;
   }
+  if (slot.key === "rangeAm" && day === state.weekDay && state.weeklies.some((row) => row.group === "084")) {
+    const able = list.filter((person) => !clashes(state, person.name, "weekly", day));
+    if (able.length) list = able;
+  }
   if (slot.type === "weekly") {
     const row = state.weeklies.find((item) => item.id === slot.id);
     const morning = state.cells.rangeAm[state.weekDay];
@@ -605,7 +658,18 @@ function options(state, slot) {
     if (slot.key === "manager" && person.name === (slot.day % 2 ? "מזרחי" : "ליהי")) return 0;
     return 1;
   };
-  return list.sort((a, b) => score(a) - score(b) || a.name.localeCompare(b.name, "he"));
+  return list.sort((a, b) => times(state, a.name, role) - times(state, b.name, role) || score(a) - score(b) || a.name.localeCompare(b.name, "he"));
+}
+
+function times(state, name, role) {
+  let count = 0;
+  for (let day = 0; day < 5; day++) {
+    if (state.cells[role]?.[day] === name) count++;
+    if (state.pairs[role] && names(state.pairs[role][day]).includes(name)) count++;
+    if (role === "manager" && state.teams[day].manager === name) count++;
+    if (role === "team" && (state.teams[day].a === name || state.teams[day].b === name)) count++;
+  }
+  return count;
 }
 
 function writeSlot(state, slot, name) {
@@ -728,5 +792,11 @@ if (isDirect) {
     console.log(builtErrors);
     process.exit(1);
   }
+  const both = seed();
+  both.pairs.yomi224[0][0] = "עפרי";
+  if (!audit(both).some((item) => item.level === "error" && item.text.includes("שתי היומיות"))) process.exit(1);
+  const ranges = seed();
+  ranges.cells.rangePm[3] = "אביגייל";
+  if (!audit(ranges).some((item) => item.level === "error" && item.text.includes("מטווח"))) process.exit(1);
   console.log(`seed ok, warnings ${issues.length}, generated ${fill.nodes}`);
 }
