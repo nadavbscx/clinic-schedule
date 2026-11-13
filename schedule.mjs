@@ -664,7 +664,7 @@ function fill(state, plan, index, started) {
 }
 
 export function generate(state) {
-  const next = structuredClone(state);
+  const next = JSON.parse(JSON.stringify(state));
   next.need ||= { rangeAm: five(false), rangePm: five(false), rangeEve: five(false) };
   clearGenerated(next);
   fill.nodes = 0;

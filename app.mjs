@@ -53,7 +53,16 @@ function normalize(input) {
 }
 
 function save() {
-  localStorage.setItem(KEY, JSON.stringify(state));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(state));
+  } catch {
+    // ponytail: private-mode storage can throw; the schedule still has to show
+  }
+}
+
+function status(text) {
+  const note = document.querySelector("#status");
+  if (note) note.textContent = text;
 }
 
 function esc(value) {
@@ -646,17 +655,27 @@ document.querySelector("#reset").addEventListener("click", () => {
   state = blankState();
   save();
   render();
+  status("הלוז ריק");
 });
 
 document.querySelector("#generate").addEventListener("click", () => {
-  const next = generate(state);
-  if (!next) {
-    window.alert("לא מצאתי לוז בלי הפרות. בדקו תורנויות וזמינות.");
-    return;
+  status("מייצר לוז…");
+  try {
+    const next = generate(state);
+    if (!next) {
+      status("לא נמצא לוז");
+      window.alert("לא מצאתי לוז בלי הפרות. בדקו תורנויות וזמינות.");
+      return;
+    }
+    state = next;
+    save();
+    render();
+    status("הלוז נוצר");
+    document.querySelector(".sheet")?.scrollIntoView({ block: "start" });
+  } catch (error) {
+    status("היצירה נכשלה");
+    window.alert(String(error));
   }
-  state = next;
-  save();
-  render();
 });
 
 render();
