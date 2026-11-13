@@ -63,7 +63,7 @@ h1 { margin: 0; font-size: 32px; font-weight: 650; }
   background: white;
   border-bottom: 1px solid var(--line);
 }
-.createbar #generate {
+.createbar #generate, .createbar #load {
   background: var(--teal);
   color: white;
   border: 0;
@@ -72,6 +72,10 @@ h1 { margin: 0; font-size: 32px; font-weight: 650; }
   font-weight: 750;
   cursor: pointer;
 }
+.load { border-bottom: 1px solid var(--line); padding: 8px 0; }
+.load h3 { margin: 0; display: flex; justify-content: space-between; font-size: 16px; }
+.load ul { margin: 4px 0 0; padding: 0 18px 0 0; }
+.load li { font-size: 14px; }
 .createbar #reset {
   background: white;
   color: var(--ink);

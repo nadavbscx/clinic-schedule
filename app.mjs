@@ -1,4 +1,4 @@
-import { DAYS, QUALS, ROLE_LABEL, RULES, audit, blankState, generate, idleOn } from "./schedule.mjs";
+import { DAYS, QUALS, ROLE_LABEL, RULES, audit, blankState, generate, idleOn, workload } from "./schedule.mjs";
 
 const KEY = "clinic-schedule-v2";
 const CELL_ROWS = [
@@ -222,7 +222,16 @@ function panel() {
   if (ui.tab === "duties") return dutiesPanel();
   if (ui.tab === "rules") return rulesPanel();
   if (ui.tab === "tasks") return tasksPanel();
+  if (ui.tab === "load") return loadPanel();
   return editPanel();
+}
+
+function loadPanel() {
+  const rows = workload(state).map((person) => {
+    const lines = person.items.map((item) => `<li>${DAYS[item.day]} · ${esc(item.text)}</li>`).join("");
+    return `<article class="load"><h3>${esc(person.name)} <b>${person.total}</b></h3>${lines ? `<ul>${lines}</ul>` : `<p class="hint">בלי שיבוץ</p>`}</article>`;
+  }).join("");
+  return `<h2>סיכום שבועי</h2><p class="hint">כמה משימות לכל אחד, ופירוט.</p>${rows}`;
 }
 
 function groupTitle(group) {
@@ -673,6 +682,11 @@ document.querySelector("#reset").addEventListener("click", () => {
   save();
   render();
   status("הלוז ריק");
+});
+
+document.querySelector("#load").addEventListener("click", () => {
+  ui.tab = ui.tab === "load" ? "edit" : "load";
+  render();
 });
 
 document.addEventListener("click", (event) => {

@@ -575,6 +575,25 @@ export function idleOn(state, day) {
   return state.people.filter((person) => !person.unavailable.includes(day) && !occupied(state, person.name, day));
 }
 
+export function workload(state) {
+  return state.people.map((person) => {
+    const items = [];
+    const name = person.name;
+    for (let day = 0; day < 5; day++) {
+      const add = (text) => items.push({ day, text });
+      for (const key of CELL_KEYS) if (state.cells[key][day] === name) add(ROLE_LABEL[key]);
+      for (const key of ["yomi054", "yomi224", "rasar"]) if (names(state.pairs[key][day]).includes(name)) add(ROLE_LABEL[key]);
+      const team = state.teams[day];
+      if (team.manager === name) add("מנהל אירוע");
+      if (team.a === name || team.b === name) add("חובש בכוננות");
+      for (const guard of state.guards[day]) if (guard.person === name) add(`שמירה ${guard.start}–${guard.end}`);
+      if (day === state.weekDay) for (const row of state.weeklies) if (row.person === name) add(`שבועית ${row.group} · ${row.task}`);
+      for (const task of state.tasks) if (task.day === day && taskPeople(task).includes(name)) add(task.title);
+    }
+    return { name, total: items.length, items };
+  }).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, "he"));
+}
+
 function spansOf(role, day) {
   if (role === "night") return [[day * 1440 + 18 * 60, day * 1440 + 24 * 60], [(day + 1) * 1440, (day + 1) * 1440 + 8 * 60]];
   const span = SPANS[role];
@@ -634,10 +653,6 @@ function options(state, slot) {
     const boys = list.filter((person) => person.boy && (person.quals.includes("konan") || person.quals.includes("night")));
     if (boys.length) list = boys;
   }
-  if (slot.key === "aide") {
-    const preferred = list.filter((person) => person.aidePriority);
-    if (preferred.length) list = preferred;
-  }
   if (slot.key === "rangeAm" && day === state.weekDay && state.weeklies.some((row) => row.group === "084")) {
     const able = list.filter((person) => !clashes(state, person.name, "weekly", day));
     if (able.length) list = able;
@@ -654,6 +669,7 @@ function options(state, slot) {
   }
   const score = (person) => {
     if (slot.key === "driver" && person.name === "נדב") return 0;
+    if (slot.key === "aide" && person.aidePriority) return 0;
     if (slot.key === "night" && person.boy && person.quals.includes("konan")) return 0;
     if (slot.key === "manager" && person.name === (slot.day % 2 ? "מזרחי" : "ליהי")) return 0;
     return 1;
@@ -727,12 +743,70 @@ function fill(state, plan, index, started) {
   return false;
 }
 
+function balance(state) {
+  const slots = [];
+  for (let day = 0; day < 5; day++) {
+    for (const key of CELL_KEYS) if (state.cells[key][day]) slots.push({ type: "cell", key, day });
+    for (const key of ["yomi054", "yomi224"]) {
+      state.pairs[key][day].forEach((name, index) => {
+        if (name) slots.push({ type: "pair", key, day, index });
+      });
+    }
+    for (const key of ["manager", "a", "b"]) if (state.teams[day][key]) slots.push({ type: "team", key, day });
+  }
+  for (const row of state.weeklies) {
+    if (row.person && row.group !== "084" && !row.task.includes("וסט רופא 4")) slots.push({ type: "weekly", id: row.id });
+  }
+  const read = (slot) => {
+    if (slot.type === "cell") return state.cells[slot.key][slot.day];
+    if (slot.type === "pair") return state.pairs[slot.key][slot.day][slot.index];
+    if (slot.type === "team") return state.teams[slot.day][slot.key];
+    return state.weeklies.find((row) => row.id === slot.id)?.person || "";
+  };
+  const roleOf = (slot) => (slot.type === "weekly" ? "weekly" : slot.type === "team" ? (slot.key === "manager" ? "manager" : "team") : slot.key);
+  const give = (slot, to) => {
+    const from = read(slot);
+    if (!from || from === to) return false;
+    if (slot.type === "weekly" && to === "נדב") return false;
+    const day = slot.day ?? state.weekDay;
+    const linked = slot.key === "rangeAm" && day === state.weekDay ? state.weeklies.find((row) => row.group === "084") : null;
+    writeSlot(state, slot, "");
+    if (linked) linked.person = "";
+    const blocked = clashes(state, to, roleOf(slot), day) || (linked && clashes(state, to, "weekly", day));
+    if (!blocked) {
+      writeSlot(state, slot, to);
+      if (linked) linked.person = to;
+      if (!audit(state).some((item) => item.level === "error")) return true;
+    }
+    writeSlot(state, slot, from);
+    if (linked) linked.person = from;
+    return false;
+  };
+  const around = (name) => state.people.find((person) => person.name === name).unavailable.length < 5;
+  for (let pass = 0; pass < 60; pass++) {
+    const ranked = workload(state).filter((person) => around(person.name));
+    let moved = false;
+    for (let i = 0; i < ranked.length && !moved; i++) {
+      for (let j = ranked.length - 1; j > i; j--) {
+        if (ranked[i].total - ranked[j].total <= 1) break;
+        if (slots.some((slot) => read(slot) === ranked[i].name && give(slot, ranked[j].name))) {
+          moved = true;
+          break;
+        }
+      }
+    }
+    if (!moved) return;
+  }
+}
+
 export function generate(state) {
   const next = JSON.parse(JSON.stringify(state));
   next.need = next.need || { rangeAm: five(false), rangePm: five(false), rangeEve: five(false) };
   clearGenerated(next);
   fill.nodes = 0;
-  return fill(next, planSlots(next), 0, Date.now()) ? next : null;
+  if (!fill(next, planSlots(next), 0, Date.now())) return null;
+  balance(next);
+  return next;
 }
 
 function freeForNight(state, name, day, ivs) {
@@ -798,5 +872,12 @@ if (isDirect) {
   const ranges = seed();
   ranges.cells.rangePm[3] = "אביגייל";
   if (!audit(ranges).some((item) => item.level === "error" && item.text.includes("מטווח"))) process.exit(1);
-  console.log(`seed ok, warnings ${issues.length}, generated ${fill.nodes}`);
+  const loads = workload(built).filter((person) => built.people.find((item) => item.name === person.name).unavailable.length < 5);
+  const named = ["עפרי", "רעות", "נעמי", "אביגייל", "אריאל", "יהלי"].map((name) => loads.find((person) => person.name === name).total);
+  const gap = Math.max(...named) - Math.min(...named);
+  if (gap > 2) {
+    console.log(loads.map((person) => `${person.name} ${person.total}`).join("\n"));
+    process.exit(1);
+  }
+  console.log(`seed ok, warnings ${issues.length}, generated ${fill.nodes}, gap ${gap}`);
 }
