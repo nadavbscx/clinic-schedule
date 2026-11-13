@@ -52,6 +52,36 @@ h1 { margin: 0; font-size: 32px; font-weight: 650; }
 }
 .actions button:hover, .file:hover { background: rgba(255, 255, 255, 0.1); }
 
+.createbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 16px;
+  background: white;
+  border-bottom: 1px solid var(--line);
+}
+.createbar #generate {
+  background: var(--teal);
+  color: white;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.createbar #reset {
+  background: white;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.createbar #status { margin: 0; font-weight: 700; }
+
 .board {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;

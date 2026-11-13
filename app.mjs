@@ -369,7 +369,7 @@ function dutiesPanel() {
       <button class="primary" type="submit">הוספה לרס״ר</button>
     </form>
     <h3>מטווחים השבוע</h3>
-    ${["rangeAm", "rangePm", "rangeEve"].map((key) => `<div class="rowline"><b>${ROLE_LABEL[key]}</b> ${DAYS.map((day, index) => `<label class="note"><input type="checkbox" data-act="need" data-key="${key}" data-day="${index}" ${state.need[key][index] ? "checked" : ""}> ${day}</label>`).join(" ")}</div>`).join("")}`;
+    ${["rangeAm", "rangePm", "rangeEve"].map((key) => `<div class="rowline"><b>${ROLE_LABEL[key]}</b> ${DAYS.map((day, index) => `<label class="note"><input type="checkbox" data-act="need" data-key="${key}" data-day="${index}" ${state.need?.[key]?.[index] ? "checked" : ""}> ${day}</label>`).join(" ")}</div>`).join("")}`;
 }
 
 function namesLine(pair) {
@@ -537,7 +537,10 @@ document.querySelector("#app").addEventListener("change", (event) => {
     if (row) row[act.dataset.act === "weekly-person" ? "person" : "task"] = act.value;
   }
   if (act.dataset.act === "week-day") state.weekDay = Number(act.value);
-  if (act.dataset.act === "need") state.need[act.dataset.key][Number(act.dataset.day)] = act.checked;
+  if (act.dataset.act === "need") {
+    state.need = state.need || { rangeAm: [false, false, false, false, false], rangePm: [false, false, false, false, false], rangeEve: [false, false, false, false, false] };
+    state.need[act.dataset.key][Number(act.dataset.day)] = act.checked;
+  }
   save();
   render();
 });
@@ -658,24 +661,27 @@ document.querySelector("#reset").addEventListener("click", () => {
   status("הלוז ריק");
 });
 
-document.querySelector("#generate").addEventListener("click", () => {
-  status("מייצר לוז…");
-  try {
-    const next = generate(state);
-    if (!next) {
-      status("לא נמצא לוז");
-      window.alert("לא מצאתי לוז בלי הפרות. בדקו תורנויות וזמינות.");
-      return;
-    }
-    state = next;
-    save();
-    render();
-    status("הלוז נוצר");
-    document.querySelector(".sheet")?.scrollIntoView({ block: "start" });
-  } catch (error) {
-    status("היצירה נכשלה");
-    window.alert(String(error));
-  }
+document.addEventListener("click", (event) => {
+  if (event.target.closest("#generate")) runGenerate();
 });
+
+function runGenerate() {
+  status("מייצר לוז…");
+  setTimeout(() => {
+    try {
+      const next = generate(state);
+      if (!next) {
+        status("לא נמצא לוז בלי הפרות");
+        return;
+      }
+      state = next;
+      save();
+      render();
+      status("הלוז נוצר");
+    } catch (error) {
+      status(error.message || String(error));
+    }
+  }, 30);
+}
 
 render();
