@@ -345,10 +345,11 @@ function peoplePanel() {
       const on = p.unavailable.includes(index) ? " on" : "";
       return `<button type="button" class="${on}" data-act="unavail" data-name="${esc(p.name)}" data-day="${index}">${day.slice(0, 1)}</button>`;
     }).join("");
+    const week = p.unavailable.length === 5 ? " on" : "";
     return `<article class="person">
       <header><strong>${esc(p.name)}</strong><button type="button" class="linkish" data-act="del-person" data-name="${esc(p.name)}">הסרה</button></header>
       <div class="quals">${p.quals.map((q) => QUALS.find(([id]) => id === q)?.[1] || q).join(" · ") || "בלי כשירות"}</div>
-      <div class="days"><span>לא זמין</span>${days}</div>
+      <div class="days"><span>לא זמין</span>${days}<button type="button" class="${week}" data-act="unavail-week" data-name="${esc(p.name)}">כל השבוע</button></div>
       <label class="note"><input type="checkbox" data-act="flag" data-flag="boy" data-name="${esc(p.name)}" ${p.boy ? "checked" : ""}> בן, לתעדוף כונן לילה</label>
       <label class="note"><input type="checkbox" data-act="flag" data-flag="neverYomi" data-name="${esc(p.name)}" ${p.neverYomi ? "checked" : ""}> בלי יומיות</label>
       <label class="note"><input type="checkbox" data-act="flag" data-flag="neverWeekly" data-name="${esc(p.name)}" ${p.neverWeekly ? "checked" : ""}> בלי שבועיות</label>
@@ -513,6 +514,10 @@ document.querySelector("#app").addEventListener("click", (event) => {
     person.unavailable = person.unavailable.includes(day)
       ? person.unavailable.filter((item) => item !== day)
       : [...person.unavailable, day];
+  }
+  if (action === "unavail-week") {
+    const person = personByName(act.dataset.name);
+    person.unavailable = person.unavailable.length === 5 ? [] : [0, 1, 2, 3, 4];
   }
   if (action === "del-person") {
     const name = act.dataset.name;
